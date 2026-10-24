@@ -29,7 +29,7 @@ p{margin:0;font-size:4vmin;color:#5a3c7a}
   <h1>Rainbow Realm</h1>
   <p>Help Bella 💗 and Ralph 💙 collect sparkly gems!<br>First to 10 gems wins.</p>
   <button id="startBtn" class="big">▶ Play!</button>
-  <p style="font-size:3vmin">Bella: W A S D or left buttons &nbsp;·&nbsp; Ralph: arrow keys or right buttons</p>
+  <p style="font-size:3vmin">Drag Bella or Ralph with a finger! &nbsp;·&nbsp; Bella: W A S D or left buttons &nbsp;·&nbsp; Ralph: arrow keys or right buttons</p>
 </div>
 <div id="win" class="screen hidden">
   <h1 id="winText">Bella wins!</h1>
@@ -72,6 +72,7 @@ p{margin:0;font-size:4vmin;color:#5a3c7a}
   }
   function reset() {
     players[0].x = 0.3; players[1].x = 0.7;
+    for (var k in drags) drop(k);
     players.forEach(function (p) { p.y = 0.5; p.score = 0; p.keys = {}; p.touch = {}; });
     gems = [newGem(), newGem(), newGem()]; pops = []; confetti = [];
   }
@@ -100,7 +101,7 @@ p{margin:0;font-size:4vmin;color:#5a3c7a}
     key(e, true);
   });
   window.addEventListener('keyup', function (e) { key(e, false); });
-  window.addEventListener('blur', function () { players.forEach(function (p) { p.keys = {}; p.touch = {}; }); });
+  window.addEventListener('blur', function () { players.forEach(function (p) { p.keys = {}; p.touch = {}; }); for (var k in drags) drop(k); });
 
   // touch d-pads: each pointer id tracked separately so both kids can press at once
   var held = {}; // pointerId -> button
@@ -110,12 +111,27 @@ p{margin:0;font-size:4vmin;color:#5a3c7a}
     delete players[+btn.dataset.p].touch[btn.dataset.d + id]; btn.classList.remove('on');
   }
   Array.prototype.forEach.call(document.querySelectorAll('.pad button'), function (btn) {
-    btn.addEventListener('pointerdown', function (e) { e.preventDefault(); try { btn.releasePointerCapture(e.pointerId); } catch (x) {} press(btn, e.pointerId); });
-    btn.addEventListener('pointerenter', function (e) { if (e.buttons || e.pointerType === 'touch') { release(e.pointerId); press(btn, e.pointerId); } });
+    btn.addEventListener('pointerdown', function (e) { e.preventDefault(); if (drags[e.pointerId]) return; try { btn.releasePointerCapture(e.pointerId); } catch (x) {} press(btn, e.pointerId); });
     btn.addEventListener('pointerleave', function (e) { if (held[e.pointerId] === btn) release(e.pointerId); });
     btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   });
-  ['pointerup', 'pointercancel'].forEach(function (n) { window.addEventListener(n, function (e) { release(e.pointerId); }); });
+  // drag-to-move: grab a character with a finger/mouse. Capture phase so a drag wins over a button underneath.
+  var drags = {}; // pointerId -> {p: player, x, y} (target in px)
+  window.addEventListener('pointerdown', function (e) {
+    if (state !== 'play') return;
+    var best = null, bd = 1e9;
+    players.forEach(function (p) {
+      if (p.held !== undefined) return; // already held by another finger: can't steal
+      var d = Math.hypot(p.x * W - e.clientX, p.y * H - e.clientY);
+      if (d < S * 0.05 * 1.6 && d < bd) { bd = d; best = p; }
+    });
+    if (!best) return;
+    e.preventDefault(); e.stopPropagation();
+    best.held = e.pointerId; drags[e.pointerId] = { p: best, x: e.clientX, y: e.clientY };
+  }, true);
+  window.addEventListener('pointermove', function (e) { var d = drags[e.pointerId]; if (d) { d.x = e.clientX; d.y = e.clientY; } });
+  function drop(id) { var d = drags[id]; if (d) { delete d.p.held; delete drags[id]; } }
+  ['pointerup', 'pointercancel'].forEach(function (n) { window.addEventListener(n, function (e) { drop(e.pointerId); release(e.pointerId); }); });
   document.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
   document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
   document.addEventListener('dblclick', function (e) { e.preventDefault(); });
@@ -134,6 +150,11 @@ p{margin:0;font-size:4vmin;color:#5a3c7a}
         p.x = Math.max(0.04, Math.min(0.96, p.x + vx * sp / W));
         p.y = Math.max(0.1, Math.min(0.92, p.y + vy * sp / H));
       });
+      for (var id in drags) { // follow the finger fast, but capped (3x walk speed) so it glides instead of teleporting
+        var dg = drags[id], q = dg.p, dx = dg.x - q.x * W, dy = dg.y - q.y * H, dl = Math.hypot(dx, dy), mx = SPEED * 3 * S * dt;
+        if (dl > mx) { dx *= mx / dl; dy *= mx / dl; }
+        q.x = Math.max(0.04, Math.min(0.96, q.x + dx / W)); q.y = Math.max(0.1, Math.min(0.92, q.y + dy / H));
+      }
       for (var i = 0; i < gems.length; i++) {
         var g = gems[i];
         for (var j = 0; j < 2; j++) {
@@ -186,6 +207,10 @@ p{margin:0;font-size:4vmin;color:#5a3c7a}
   }
   function hero(p, i) {
     var x = p.x * W, y = p.y * H + Math.sin(t * 5 + i) * S * 0.006, r = S * 0.05;
+    if (p.held !== undefined) { // glowing ring while held
+      cx.save(); cx.shadowColor = '#fff'; cx.shadowBlur = r * 0.6; cx.strokeStyle = 'rgba(255,240,120,0.9)'; cx.lineWidth = r * 0.15;
+      cx.beginPath(); cx.arc(x, y, r * (1.35 + Math.sin(t * 8) * 0.06), 0, 7); cx.stroke(); cx.restore();
+    }
     cx.fillStyle = 'rgba(0,0,0,0.08)'; cx.beginPath(); cx.ellipse(x, y + r * 1.1, r * 0.8, r * 0.2, 0, 0, 7); cx.fill();
     cx.fillStyle = p.dark;
     if (i === 0) { // Bella: little bunny ears + bow
@@ -228,7 +253,7 @@ p{margin:0;font-size:4vmin;color:#5a3c7a}
   requestAnimationFrame(loop);
 
   // tiny test hook
-  window.RR = { get state() { return state; }, players: players, get gems() { return gems; }, set gems(v) { gems = v; }, GOAL: GOAL, startGame: startGame };
+  window.RR = { get state() { return state; }, players: players, get gems() { return gems; }, set gems(v) { gems = v; }, GOAL: GOAL, startGame: startGame, drags: drags };
 })();
 </script>
 </body>
