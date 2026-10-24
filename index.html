@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Rainbow Realm</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#cdeeff;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;font-family:"Trebuchet MS",Verdana,sans-serif}
+canvas{position:fixed;inset:0;width:100vw;height:100vh;display:block;touch-action:none}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:3vmin;touch-action:none}
+.hidden{display:none}
+h1{margin:0;font-size:11vmin;color:#fff;text-shadow:0 0.6vmin 0 #b36bd6,0 0 3vmin #ff9ad5}
+p{margin:0;font-size:4vmin;color:#5a3c7a}
+.big{font:bold 7vmin "Trebuchet MS",sans-serif;padding:3vmin 9vmin;border:none;border-radius:6vmin;color:#fff;background:linear-gradient(90deg,#ff6fa8,#ffb347,#7ed957,#4fc3f7,#b388ff);box-shadow:0 1.2vmin 0 #8a5fb8;cursor:pointer}
+.big:active{transform:translateY(1vmin);box-shadow:0 .2vmin 0 #8a5fb8}
+.pad{position:fixed;bottom:2vmin;width:36vmin;height:36vmin;touch-action:none}
+.pad.hidden{display:none}
+.pad button{position:absolute;width:12vmin;height:12vmin;border:none;border-radius:3vmin;font-size:6vmin;color:#fff;opacity:.85;touch-action:none;padding:0}
+.pad .u{left:12vmin;top:0}.pad .d{left:12vmin;top:24vmin}.pad .l{left:0;top:12vmin}.pad .r{left:24vmin;top:12vmin}
+.pad.on button.on{opacity:1;transform:scale(.92)}
+#padB{left:2vmin}#padB button{background:#d36ad9}
+#padR{right:2vmin}#padR button{background:#2fa8c9}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="start" class="screen">
+  <h1>Rainbow Realm</h1>
+  <p>Help Bella 💗 and Ralph 💙 collect sparkly gems!<br>First to 10 gems wins.</p>
+  <button id="startBtn" class="big">▶ Play!</button>
+  <p style="font-size:3vmin">Bella: W A S D or left buttons &nbsp;·&nbsp; Ralph: arrow keys or right buttons</p>
+</div>
+<div id="win" class="screen hidden">
+  <h1 id="winText">Bella wins!</h1>
+  <p>Hooray! What a sparkly race! 🌈</p>
+  <button id="againBtn" class="big">↻ Play again</button>
+</div>
+<div id="padB" class="pad hidden"><button class="u" data-p="0" data-d="u">▲</button><button class="l" data-p="0" data-d="l">◀</button><button class="r" data-p="0" data-d="r">▶</button><button class="d" data-p="0" data-d="d">▼</button></div>
+<div id="padR" class="pad hidden"><button class="u" data-p="1" data-d="u">▲</button><button class="l" data-p="1" data-d="l">◀</button><button class="r" data-p="1" data-d="r">▶</button><button class="d" data-p="1" data-d="d">▼</button></div>
+<script>
+(function () {
+  'use strict';
+  var GOAL = 10, SPEED = 0.45; // speed in screen-heights per second
+  var cv = document.getElementById('c'), cx = cv.getContext('2d');
+  var W = 0, H = 0, S = 1;
+  var state = 'start', last = 0, t = 0;
+  var players = [
+    { name: 'Bella', body: '#ff8fcf', dark: '#a64ac9', x: 0.3, y: 0.5, score: 0, keys: {}, touch: {} },
+    { name: 'Ralph', body: '#5fc8f0', dark: '#2e9e6a', x: 0.7, y: 0.5, score: 0, keys: {}, touch: {} }
+  ];
+  var gems = [], pops = [], confetti = [];
+  var GEMCOL = ['#ff5c8a', '#ffb347', '#ffe156', '#7ed957', '#4fc3f7', '#b388ff'];
+
+  function resize() {
+    var d = window.devicePixelRatio || 1;
+    W = window.innerWidth; H = window.innerHeight; S = Math.min(W, H);
+    cv.width = W * d; cv.height = H * d; cx.setTransform(d, 0, 0, d, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // positions are stored as fractions of width/height
+  function newGem() {
+    var g;
+    for (var i = 0; i < 20; i++) {
+      g = { x: 0.08 + Math.random() * 0.84, y: 0.18 + Math.random() * 0.5, c: GEMCOL[(Math.random() * 6) | 0], b: Math.random() * 6 };
+      var ok = players.every(function (p) { return Math.hypot((p.x - g.x) * W, (p.y - g.y) * H) > S * 0.2; });
+      if (ok) break;
+    }
+    return g;
+  }
+  function reset() {
+    players[0].x = 0.3; players[1].x = 0.7;
+    players.forEach(function (p) { p.y = 0.5; p.score = 0; p.keys = {}; p.touch = {}; });
+    gems = [newGem(), newGem(), newGem()]; pops = []; confetti = [];
+  }
+  function show(id, on) { document.getElementById(id).classList.toggle('hidden', !on); }
+  function startGame() {
+    reset(); state = 'play';
+    show('start', false); show('win', false); show('padB', true); show('padR', true);
+  }
+  function win(p) {
+    state = 'win';
+    document.getElementById('winText').textContent = p.name + ' wins! 🎉';
+    show('win', true); show('padB', false); show('padR', false);
+    for (var i = 0; i < 160; i++) confetti.push({ x: Math.random(), y: -Math.random(), v: 0.1 + Math.random() * 0.25, c: GEMCOL[i % 6], r: Math.random() * 6 });
+  }
+  document.getElementById('startBtn').addEventListener('click', startGame);
+  document.getElementById('againBtn').addEventListener('click', startGame);
+
+  // keyboard
+  var KEYMAP = { KeyW: [0, 'u'], KeyS: [0, 'd'], KeyA: [0, 'l'], KeyD: [0, 'r'], ArrowUp: [1, 'u'], ArrowDown: [1, 'd'], ArrowLeft: [1, 'l'], ArrowRight: [1, 'r'] };
+  function key(e, down) {
+    var k = KEYMAP[e.code]; if (!k) return;
+    e.preventDefault(); players[k[0]].keys[k[1]] = down;
+  }
+  window.addEventListener('keydown', function (e) {
+    if (state !== 'play' && (e.code === 'Enter' || e.code === 'Space')) { startGame(); e.preventDefault(); return; }
+    key(e, true);
+  });
+  window.addEventListener('keyup', function (e) { key(e, false); });
+  window.addEventListener('blur', function () { players.forEach(function (p) { p.keys = {}; p.touch = {}; }); });
+
+  // touch d-pads: each pointer id tracked separately so both kids can press at once
+  var held = {}; // pointerId -> button
+  function press(btn, id) { held[id] = btn; players[+btn.dataset.p].touch[btn.dataset.d + id] = btn.dataset.d; btn.classList.add('on'); btn.parentNode.classList.add('on'); }
+  function release(id) {
+    var btn = held[id]; if (!btn) return; delete held[id];
+    delete players[+btn.dataset.p].touch[btn.dataset.d + id]; btn.classList.remove('on');
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.pad button'), function (btn) {
+    btn.addEventListener('pointerdown', function (e) { e.preventDefault(); try { btn.releasePointerCapture(e.pointerId); } catch (x) {} press(btn, e.pointerId); });
+    btn.addEventListener('pointerenter', function (e) { if (e.buttons || e.pointerType === 'touch') { release(e.pointerId); press(btn, e.pointerId); } });
+    btn.addEventListener('pointerleave', function (e) { if (held[e.pointerId] === btn) release(e.pointerId); });
+    btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  });
+  ['pointerup', 'pointercancel'].forEach(function (n) { window.addEventListener(n, function (e) { release(e.pointerId); }); });
+  document.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+  function dirs(p) {
+    var d = { u: p.keys.u, d: p.keys.d, l: p.keys.l, r: p.keys.r };
+    for (var k in p.touch) d[p.touch[k]] = true;
+    return d;
+  }
+  function update(dt) {
+    t += dt;
+    if (state === 'play') {
+      players.forEach(function (p) {
+        var d = dirs(p), vx = (d.r ? 1 : 0) - (d.l ? 1 : 0), vy = (d.d ? 1 : 0) - (d.u ? 1 : 0);
+        var len = Math.hypot(vx, vy) || 1, sp = SPEED * S * dt / len;
+        p.x = Math.max(0.04, Math.min(0.96, p.x + vx * sp / W));
+        p.y = Math.max(0.1, Math.min(0.92, p.y + vy * sp / H));
+      });
+      for (var i = 0; i < gems.length; i++) {
+        var g = gems[i];
+        for (var j = 0; j < 2; j++) {
+          var p = players[j];
+          if (Math.hypot((p.x - g.x) * W, (p.y - g.y) * H) < S * 0.075) {
+            p.score++; pops.push({ x: g.x, y: g.y, c: g.c, a: 1 });
+            gems[i] = newGem();
+            if (p.score >= GOAL) { win(p); return; }
+            break;
+          }
+        }
+      }
+    }
+    pops.forEach(function (o) { o.a -= dt * 1.5; }); pops = pops.filter(function (o) { return o.a > 0; });
+    confetti.forEach(function (c) { c.y += c.v * dt; c.r += dt * 4; if (c.y > 1.05) c.y = -0.05; });
+  }
+
+  // ---------- drawing ----------
+  function sky() {
+    var g = cx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#bfe6ff'); g.addColorStop(0.6, '#ffe3f4'); g.addColorStop(1, '#fff6d6');
+    cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+    var rc = ['#ff8a8a', '#ffc27a', '#fff07a', '#a6eb8a', '#8fd3ff', '#c3a6ff'];
+    cx.lineWidth = S * 0.035; cx.globalAlpha = 0.55;
+    for (var i = 0; i < 6; i++) { cx.strokeStyle = rc[i]; cx.beginPath(); cx.arc(W / 2, H * 1.05, Math.max(W, H) * 0.62 - i * S * 0.035, Math.PI, 0); cx.stroke(); }
+    cx.globalAlpha = 1;
+    cloud(((t * 0.02) % 1.4 - 0.2) * W, H * 0.12, S * 0.07);
+    cloud(((t * 0.015 + 0.6) % 1.4 - 0.2) * W, H * 0.22, S * 0.05);
+    cloud(((t * 0.01 + 0.3) % 1.4 - 0.2) * W, H * 0.8, S * 0.06);
+    for (i = 0; i < 25; i++) {
+      var sx = (i * 137.5 % 100) / 100 * W, sy = (i * 61.8 % 100) / 100 * H, tw = (Math.sin(t * 3 + i) + 1) / 2;
+      star(sx, sy, S * 0.008 * (0.5 + tw), 'rgba(255,255,255,' + (0.4 + tw * 0.6) + ')');
+    }
+  }
+  function cloud(x, y, r) {
+    cx.fillStyle = 'rgba(255,255,255,0.9)'; cx.beginPath();
+    cx.arc(x, y, r, 0, 7); cx.arc(x + r, y + r * 0.2, r * 0.8, 0, 7); cx.arc(x - r, y + r * 0.2, r * 0.7, 0, 7); cx.fill();
+  }
+  function star(x, y, r, c) {
+    cx.fillStyle = c; cx.beginPath();
+    for (var i = 0; i < 8; i++) { var a = i * Math.PI / 4, rr = i % 2 ? r * 0.35 : r; cx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+    cx.fill();
+  }
+  function gem(g) {
+    var x = g.x * W, y = g.y * H + Math.sin(t * 3 + g.b) * S * 0.01, r = S * 0.035;
+    cx.fillStyle = g.c; cx.strokeStyle = '#fff'; cx.lineWidth = S * 0.005;
+    cx.beginPath(); cx.moveTo(x, y - r); cx.lineTo(x + r * 0.8, y - r * 0.2); cx.lineTo(x, y + r); cx.lineTo(x - r * 0.8, y - r * 0.2); cx.closePath(); cx.fill(); cx.stroke();
+    cx.fillStyle = 'rgba(255,255,255,0.6)'; cx.beginPath(); cx.moveTo(x, y - r); cx.lineTo(x + r * 0.3, y - r * 0.2); cx.lineTo(x - r * 0.3, y - r * 0.2); cx.fill();
+    star(x + r * 0.7, y - r * 0.8, r * 0.35 * (1 + Math.sin(t * 6 + g.b)) / 2 + 1, '#fff');
+  }
+  function hero(p, i) {
+    var x = p.x * W, y = p.y * H + Math.sin(t * 5 + i) * S * 0.006, r = S * 0.05;
+    cx.fillStyle = 'rgba(0,0,0,0.08)'; cx.beginPath(); cx.ellipse(x, y + r * 1.1, r * 0.8, r * 0.2, 0, 0, 7); cx.fill();
+    cx.fillStyle = p.dark;
+    if (i === 0) { // Bella: little bunny ears + bow
+      cx.beginPath(); cx.ellipse(x - r * 0.45, y - r * 1.05, r * 0.2, r * 0.5, -0.2, 0, 7); cx.ellipse(x + r * 0.45, y - r * 1.05, r * 0.2, r * 0.5, 0.2, 0, 7); cx.fill();
+    } else { // Ralph: round bear ears + leaf
+      cx.beginPath(); cx.arc(x - r * 0.7, y - r * 0.75, r * 0.3, 0, 7); cx.arc(x + r * 0.7, y - r * 0.75, r * 0.3, 0, 7); cx.fill();
+    }
+    cx.fillStyle = p.body; cx.strokeStyle = p.dark; cx.lineWidth = S * 0.006;
+    cx.beginPath(); cx.arc(x, y, r, 0, 7); cx.fill(); cx.stroke();
+    cx.fillStyle = '#333'; cx.beginPath(); cx.arc(x - r * 0.35, y - r * 0.1, r * 0.12, 0, 7); cx.arc(x + r * 0.35, y - r * 0.1, r * 0.12, 0, 7); cx.fill();
+    cx.fillStyle = '#fff'; cx.beginPath(); cx.arc(x - r * 0.31, y - r * 0.15, r * 0.04, 0, 7); cx.arc(x + r * 0.39, y - r * 0.15, r * 0.04, 0, 7); cx.fill();
+    cx.fillStyle = 'rgba(255,120,150,0.5)'; cx.beginPath(); cx.arc(x - r * 0.6, y + r * 0.2, r * 0.15, 0, 7); cx.arc(x + r * 0.6, y + r * 0.2, r * 0.15, 0, 7); cx.fill();
+    cx.strokeStyle = '#333'; cx.lineWidth = S * 0.004; cx.beginPath(); cx.arc(x, y + r * 0.15, r * 0.25, 0.2, Math.PI - 0.2); cx.stroke();
+    if (i === 0) star(x + r * 0.55, y - r * 0.75, r * 0.3, '#ffe156');
+    else { cx.fillStyle = '#7ed957'; cx.beginPath(); cx.ellipse(x, y - r * 1.05, r * 0.15, r * 0.3, 0.5, 0, 7); cx.fill(); }
+    cx.fillStyle = p.dark; cx.font = 'bold ' + (S * 0.03) + 'px Trebuchet MS'; cx.textAlign = 'center';
+    cx.fillText(p.name, x, y + r * 1.6);
+  }
+  function hud() {
+    cx.font = 'bold ' + (S * 0.05) + 'px Trebuchet MS'; cx.textBaseline = 'top';
+    players.forEach(function (p, i) {
+      cx.fillStyle = p.dark; cx.textAlign = i ? 'right' : 'left';
+      cx.fillText((i ? '' : '💎 ') + p.name + ': ' + p.score + (i ? ' 💎' : ''), i ? W - S * 0.03 : S * 0.03, S * 0.02);
+    });
+    cx.textBaseline = 'alphabetic';
+  }
+  function draw() {
+    sky();
+    if (state !== 'start') {
+      gems.forEach(gem);
+      pops.forEach(function (o) { star(o.x * W, o.y * H, S * 0.08 * (1.5 - o.a), 'rgba(255,255,255,' + o.a + ')'); });
+      players.forEach(hero); hud();
+    }
+    confetti.forEach(function (c) { cx.save(); cx.translate(c.x * W, c.y * H); cx.rotate(c.r); cx.fillStyle = c.c; cx.fillRect(-S * 0.008, -S * 0.004, S * 0.016, S * 0.008); cx.restore(); });
+  }
+  function loop(now) {
+    var dt = Math.min(0.05, (now - (last || now)) / 1000); last = now;
+    update(dt); draw(); requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  // tiny test hook
+  window.RR = { get state() { return state; }, players: players, get gems() { return gems; }, set gems(v) { gems = v; }, GOAL: GOAL, startGame: startGame };
+})();
+</script>
+</body>
+</html>
